@@ -21,12 +21,21 @@ KEEP_DAYS = 60
 def send(text):
     if DRY:
         print("-" * 50 + "\n" + text)
-        return
-    token, chat = os.environ["TELEGRAM_TOKEN"], os.environ["TELEGRAM_CHAT_ID"]
-    requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                  data={"chat_id": chat, "text": text, "parse_mode": "HTML",
-                        "disable_web_page_preview": True}, timeout=20)
+        return True
+    token = os.environ.get("TELEGRAM_TOKEN", "").strip()
+    chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                          data={"chat_id": chat, "text": text, "parse_mode": "HTML",
+                                "disable_web_page_preview": True}, timeout=20)
+        ok = r.ok
+        detail = r.text[:200]
+    except Exception as e:                       # 토큰이 로그에 찍히지 않게 예외 문구는 쓰지 않음
+        ok, detail = False, type(e).__name__
+    if not ok:
+        print(f"[텔레그램] 전송 실패: {detail}")
     time.sleep(1)
+    return ok
 
 
 def fmt(job, r, star):
@@ -57,20 +66,26 @@ def main():
     for j in jobs:
         if j["id"] in seen:
             continue
-        seen[j["id"]] = now          # 점수와 상관없이 본 공고는 기록 (중복 방지)
         r = score(j, cfg)
         if r and r["score"] >= cfg["notify_threshold"]:
-            picked.append((r["score"], j, r))
+            picked.append((r["score"], j, r))     # 알림 대상은 전송에 성공해야 기록
+        else:
+            seen[j["id"]] = now                   # 알림 대상이 아닌 공고는 바로 기록 (중복 방지)
 
     picked.sort(key=lambda x: -x[0])
     limit = cfg["first_run_max"] if first_run else cfg["max_alerts_per_run"]
+    sent = 0
     for _, j, r in picked[:limit]:
-        send(fmt(j, r, cfg["star_threshold"]))
+        if send(fmt(j, r, cfg["star_threshold"])):
+            seen[j["id"]] = now
+            sent += 1
     if len(picked) > limit:
         rest = "\n".join(f"{s}점 [{html.escape(j['company'])}] {html.escape(j['title'][:30])}"
                          for s, j, _ in picked[limit:limit + 15])
-        send(f"<b>그 외 {len(picked) - limit}건</b>\n{rest}")
-    print(f"신규 {len(picked)}건 알림 대상 / 전송 {min(len(picked), limit)}건")
+        if send(f"<b>그 외 {len(picked) - limit}건</b>\n{rest}"):
+            for _, j, _ in picked[limit:limit + 15]:
+                seen[j["id"]] = now
+    print(f"신규 {len(picked)}건 알림 대상 / 전송 성공 {sent}건")
 
     # 오래된 기록 정리 후 저장
     seen = {k: v for k, v in seen.items() if now - v < KEEP_DAYS * 86400}
