@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MD 공고 체크</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2f5d50">
+<style>
+:root{--bg:#f6f7f5;--card:#fff;--fg:#1d2321;--sub:#5d6862;--line:#dfe3df;--acc:#2f5d50;--ok:#1f7a4d;--mid:#a86b00;--bad:#b3261e;--none:#6b7280}
+@media (prefers-color-scheme:dark){:root{--bg:#141816;--card:#1c221f;--fg:#e8ece9;--sub:#9aa6a0;--line:#2c3531;--acc:#6fb59c;--ok:#5fd19a;--mid:#e0a63a;--bad:#f2867f;--none:#9aa3ad}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:860px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:8px 0 12px}h2{font-size:16px;margin:18px 0 8px}
+nav{display:flex;gap:6px;margin-bottom:12px}
+nav button{flex:1;padding:9px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;font:inherit;cursor:pointer}
+nav button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+textarea,input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit}
+textarea{min-height:200px;resize:vertical}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}
+button.p{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 16px;font:inherit;cursor:pointer}
+button.s{background:transparent;color:var(--acc);border:1px solid var(--acc);border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer}
+button.d{background:transparent;color:var(--bad);border:1px solid var(--bad);border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer}
+.hint{color:var(--sub);font-size:13px}
+.verdict{font-size:18px;font-weight:700}.v-지원-추천{color:var(--ok)}.v-검토-후-지원{color:var(--mid)}.v-패스{color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+.j-적합{color:var(--ok);font-weight:600}.j-애매{color:var(--mid);font-weight:600}.j-부적합{color:var(--bad);font-weight:600}.j-공고에-없음{color:var(--none)}
+.tblwrap{overflow-x:auto}
+ul{padding-left:20px;margin:4px 0}
+.due{border-left:4px solid var(--mid)}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--sub)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>MD 공고 체크</h1>
+<nav>
+  <button data-tab="check" class="on">공고 검토</button>
+  <button data-tab="box">내 공고함</button>
+  <button data-tab="alert">알림 설정</button>
+</nav>
+
+<section id="tab-check">
+  <div class="card">
+    <textarea id="txt" placeholder="채용공고 텍스트를 붙여넣으세요. 여러 개는 사이에 ===== 한 줄을 넣어 구분하면 점수순 비교표가 나와요."></textarea>
+    <div class="row" style="margin-top:8px">
+      <input id="company" placeholder="회사명 (선택)">
+      <input id="title" placeholder="직무명 (선택)">
+      <input id="url" placeholder="공고 링크 (선택)">
+    </div>
+    <p style="margin:10px 0 0"><button class="p" id="go">판정하기</button>
+    <span class="hint">규칙 기반 판정이라 참고용이에요. 공고에 없는 정보는 '공고에 없음'으로 둬요.</span></p>
+  </div>
+  <div id="out"></div>
+</section>
+
+<section id="tab-box" class="hidden">
+  <div id="today"></div>
+  <div id="list"></div>
+</section>
+
+<section id="tab-alert" class="hidden">
+  <div class="card">
+    <h2 style="margin-top:0">브라우저 알림</h2>
+    <p id="perm" class="hint"></p>
+    <p><button class="p" id="askPerm">알림 허용하기</button> <button class="s" id="testNotif">테스트 알림</button></p>
+    <p>지원 후 <input id="fu" type="number" min="1" max="60" style="width:70px;display:inline-block"> 일 지나면 팔로업 알림</p>
+    <p class="hint">마감 D-3, D-1, 당일에 알려줘요. 이 알림은 앱(브라우저 탭)이 열려 있을 때만 떠요. 앱을 닫고도 받으려면 공고함에서 '캘린더(.ics)'로 내려받아 폰 캘린더에 넣어두세요. 캘린더 알림은 앱과 상관없이 울려요.</p>
+  </div>
+</section>
+</main>
+
+<script src="engine.js"></script>
+<script>
+(function(){
+'use strict';
+var KEY='jobcheck.jobs.v1', SKEY='jobcheck.settings.v1';
+var STATUS=['관심','지원예정','지원함','면접','종료'];
+function load(k,d){try{var v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}}
+function save(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+var jobs=load(KEY,[]), settings=load(SKEY,{fu:7}), CUR=[];
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function cls(s){return s.replace(/\s+/g,'-')}
+
+// ---- 탭
+document.querySelectorAll('nav button').forEach(function(b){b.onclick=function(){
+  document.querySelectorAll('nav button').forEach(function(x){x.classList.toggle('on',x===b)});
+  ['check','box','alert'].forEach(function(t){$('tab-'+t).classList.toggle('hidden',t!==b.dataset.tab)});
+  if(b.dataset.tab==='box')renderBox(); if(b.dataset.tab==='alert')renderPerm();
+}});
+
+// ---- 판정
+$('go').onclick=function(){
+  var raw=$('txt').value; if(raw.trim().length<30){$('out').innerHTML='<div class="card">공고 텍스트를 좀 더 붙여넣어 주세요.</div>';return}
+  var parts=JobEngine.splitPostings(raw); if(!parts.length)parts=[raw.trim()];
+  var meta=parts.length===1?{company:$('company').value.trim(),title:$('title').value.trim()}:{};
+  CUR=parts.map(function(p){var a=JobEngine.analyze(p,meta);a.text=p;a.url=parts.length===1?$('url').value.trim():'';return a});
+  render();
+};
+function render(){
+  var order=CUR.map(function(a,i){return i}).sort(function(x,y){return CUR[y].score-CUR[x].score}), h='';
+  if(CUR.length>1){
+    h+='<div class="card"><h2 style="margin-top:0">점수순 비교</h2><div class="tblwrap"><table><tr><th>회사</th><th>직무</th><th>점수</th><th>결론</th><th>핵심 이유</th><th></th></tr>';
+    order.forEach(function(i){var a=CUR[i];h+='<tr><td>'+esc(a.company||'-')+'</td><td>'+esc(a.title)+'</td><td>'+a.score+'</td><td class="v-'+cls(a.verdict)+'">'+a.verdict+'</td><td>'+esc(a.reason)+'</td><td><button class="s" data-save="'+i+'">저장</button></td></tr>'});
+    h+='</table></div></div><p class="hint">상위 2개만 상세 판정을 보여드려요.</p>';
+    order=order.slice(0,2);
+  }
+  order.forEach(function(i){h+=detail(CUR[i],i)});
+  $('out').innerHTML=h;
+  $('out').querySelectorAll('[data-save]').forEach(function(b){b.onclick=function(){saveJob(+b.dataset.save,b)}});
+}
+function detail(a,i){
+  var h='<div class="card"><div class="verdict v-'+cls(a.verdict)+'">'+a.verdict+' · '+a.score+'점</div>';
+  h+='<div>'+esc(a.company||'')+' '+esc(a.title||'')+'</div><p>'+esc(a.reason)+'</p>';
+  h+='<div class="tblwrap"><table><tr><th>항목</th><th>판정</th><th>근거가 된 공고 문구</th></tr>';
+  a.items.forEach(function(it){h+='<tr><td>'+it.label+'</td><td class="j-'+cls(it.v)+'">'+it.v+'</td><td>'+(it.ev?esc(it.ev):'<span class="hint">공고에 없음</span>')+(it.note?'<div class="hint">'+esc(it.note)+'</div>':'')+'</td></tr>'});
+  h+='</table></div>';
+  h+='<h2>걸리는 점</h2><ul>'+(a.concerns.length?a.concerns.map(function(c){return '<li>'+esc(c)+'</li>'}).join(''):'<li>눈에 띄는 걸림돌은 없어요.</li>')+'</ul>';
+  h+='<h2>면접·커피챗에서 확인할 질문</h2><ol>'+a.questions.map(function(q){return '<li>'+esc(q)+'</li>'}).join('')+'</ol>';
+  h+='<h2>지원 시 강조 포인트</h2>';
+  h+=a.strengths.length?'<ul>'+a.strengths.map(function(s){return '<li><b>'+esc(s.title)+'</b> — '+esc(s.ev)+'<div class="hint">'+esc(s.tip)+'</div></li>'}).join('')+'</ul>':'<p class="hint">공고에서 맞닿는 업무가 뚜렷하게 보이지 않아요.</p>';
+  h+='<p><button class="p" data-save="'+i+'">공고함에 저장</button></p></div>';
+  return h;
+}
+function saveJob(i,btn){
+  var a=CUR[i], j={id:String(Date.now())+i,company:a.company,title:a.title,url:a.url||'',score:a.score,verdict:a.verdict,reason:a.reason,deadline:a.deadline||'',status:'관심',appliedAt:'',notified:{},createdAt:new Date().toISOString()};
+  jobs.push(j); save(KEY,jobs); btn.textContent='저장됨'; btn.disabled=true;
+}
+
+// ---- 공고함
+function today0(){var d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate())}
+function daysTo(s){if(!s)return null;var p=s.split('-');return Math.round((new Date(+p[0],+p[1]-1,+p[2])-today0())/86400000)}
+function daysSince(s){return s?Math.floor((today0()-new Date(s))/86400000):null}
+function dueList(){
+  var out=[];
+  jobs.forEach(function(j){
+    var d=daysTo(j.deadline);
+    if((j.status==='관심'||j.status==='지원예정')&&d!=null&&d>=0&&d<=3)out.push({j:j,msg:'마감 '+(d===0?'오늘':'D-'+d)});
+    if(j.status==='지원함'&&j.appliedAt){var n=daysSince(j.appliedAt);if(n>=settings.fu)out.push({j:j,msg:'지원한 지 '+n+'일째 — 진행 상황 확인'})}
+  });
+  return out;
+}
+function renderBox(){
+  var due=dueList(), h='';
+  if(due.length)h+='<div class="card due"><b>오늘 챙길 것</b><ul>'+due.map(function(x){return '<li>['+esc(x.j.company||'-')+'] '+esc(x.j.title)+' — '+x.msg+'</li>'}).join('')+'</ul></div>';
+  $('today').innerHTML=h;
+  if(!jobs.length){$('list').innerHTML='<div class="card hint">저장한 공고가 아직 없어요. 판정 결과에서 저장해 보세요.</div>';return}
+  var sorted=jobs.slice().sort(function(a,b){return b.score-a.score}); h='';
+  sorted.forEach(function(j){
+    h+='<div class="card" data-id="'+j.id+'"><div><b class="v-'+cls(j.verdict)+'">'+j.score+'점 · '+j.verdict+'</b> <span class="tag">'+esc(j.status)+'</span></div>';
+    h+='<div>'+esc(j.company||'-')+' · '+esc(j.title)+(j.url?' · <a href="'+esc(j.url)+'" target="_blank" rel="noopener noreferrer">링크</a>':'')+'</div><div class="hint">'+esc(j.reason)+'</div>';
+    h+='<div class="row" style="margin-top:8px"><select data-f="status">'+STATUS.map(function(s){return '<option'+(s===j.status?' selected':'')+'>'+s+'</option>'}).join('')+'</select><input type="date" data-f="deadline" value="'+esc(j.deadline)+'" title="마감일"></div>';
+    h+='<p style="margin:8px 0 0"><button class="s" data-ics>캘린더(.ics)</button> <button class="d" data-del>삭제</button></p></div>';
+  });
+  $('list').innerHTML=h;
+  $('list').querySelectorAll('.card').forEach(function(c){
+    var j=jobs.filter(function(x){return x.id===c.dataset.id})[0];
+    c.querySelectorAll('[data-f]').forEach(function(el){el.onchange=function(){
+      j[el.dataset.f]=el.value; if(el.dataset.f==='status'&&el.value==='지원함'&&!j.appliedAt)j.appliedAt=new Date().toISOString().slice(0,10);
+      j.notified={}; save(KEY,jobs); renderBox();
+    }});
+    c.querySelector('[data-ics]').onclick=function(){ics(j)};
+    c.querySelector('[data-del]').onclick=function(){if(confirm('삭제할까요?')){jobs=jobs.filter(function(x){return x!==j});save(KEY,jobs);renderBox()}};
+  });
+}
+function ics(j){
+  if(!j.deadline){alert('마감일을 먼저 입력해 주세요.');return}
+  var d=j.deadline.replace(/-/g,''), n=new Date(j.deadline); n.setDate(n.getDate()+1);
+  var e=n.getFullYear()+('0'+(n.getMonth()+1)).slice(-2)+('0'+n.getDate()).slice(-2);
+  function al(t,m){return 'BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:'+m+'\r\nTRIGGER:'+t+'\r\nEND:VALARM\r\n'}
+  var s='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//jobcheck//KO\r\nBEGIN:VEVENT\r\nUID:'+j.id+'@jobcheck\r\nDTSTAMP:'+new Date().toISOString().replace(/[-:]|\.\d{3}/g,'')+'\r\nDTSTART;VALUE=DATE:'+d+'\r\nDTEND;VALUE=DATE:'+e+'\r\nSUMMARY:[마감] '+(j.company||'')+' '+j.title+'\r\n'+al('-P3D','마감 3일 전')+al('-P1D','마감 1일 전')+al('PT9H','오늘 마감')+'END:VEVENT\r\nEND:VCALENDAR\r\n';
+  var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([s],{type:'text/calendar'})); a.download='deadline-'+d+'.ics'; a.click();
+}
+
+// ---- 알림
+function renderPerm(){
+  var p=('Notification' in window)?Notification.permission:'unsupported';
+  $('perm').textContent=p==='granted'?'알림이 허용되어 있어요.':p==='denied'?'브라우저에서 차단된 상태예요. 주소창 옆 사이트 설정에서 허용으로 바꿔주세요.':p==='unsupported'?'이 브라우저는 알림을 지원하지 않아요. 캘린더(.ics)를 이용해 주세요.':'아직 허용 전이에요.';
+  $('fu').value=settings.fu;
+}
+$('fu').onchange=function(){settings.fu=Math.max(1,+this.value||7);save(SKEY,settings)};
+$('askPerm').onclick=function(){if('Notification' in window)Notification.requestPermission().then(renderPerm)};
+$('testNotif').onclick=function(){notify('MD 공고 체크','테스트 알림이에요.','test').then(function(ok){if(!ok)alert('알림 권한이 없어요. 먼저 허용해 주세요.')})};
+function notify(title,body,tag){
+  return new Promise(function(res){
+    try{
+      if(!('Notification' in window)||Notification.permission!=='granted')return res(false);
+      var p=('serviceWorker' in navigator)?navigator.serviceWorker.getRegistration():Promise.resolve(null);
+      p.then(function(reg){if(reg)return reg.showNotification(title,{body:body,tag:tag}).then(function(){res(true)});new Notification(title,{body:body,tag:tag});res(true)}).catch(function(){res(false)});
+    }catch(e){res(false)}
+  });
+}
+function check(){
+  var changed=false;
+  jobs.forEach(function(j){
+    j.notified=j.notified||{};
+    var d=daysTo(j.deadline);
+    if((j.status==='관심'||j.status==='지원예정')&&d!=null&&d>=0&&d<=3){
+      var k=d<=0?0:d<=1?1:3;
+      if(!j.notified['d'+k]){notify('마감 '+(d===0?'오늘':'D-'+d),'['+(j.company||'-')+'] '+j.title,j.id+'d'+k);[3,1,0].forEach(function(x){if(x>=k)j.notified['d'+x]=1});changed=true}
+    }
+    if(j.status==='지원함'&&j.appliedAt&&daysSince(j.appliedAt)>=settings.fu&&!j.notified.fu){
+      notify('지원 후 팔로업','['+(j.company||'-')+'] '+j.title+' — 진행 상황을 확인해 보세요',j.id+'fu');j.notified.fu=1;changed=true;
+    }
+  });
+  if(changed)save(KEY,jobs);
+}
+check(); setInterval(check,60000); document.addEventListener('visibilitychange',function(){if(!document.hidden)check()});
+if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){navigator.serviceWorker.register('sw.js').catch(function(){})}
+})();
+</script>
+</body>
+</html>
