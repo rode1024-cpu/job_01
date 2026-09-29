@@ -71,21 +71,30 @@ def score(job, cfg):
         pts += 2.5
         minus.append(job["exp_text"] or "경력 애매")
 
-    # 4) 지역 (15): 출퇴근 불가 지역은 탈락
-    loc_src = job["location"] or text[:500]
-    if _hits(loc_src, cfg["locations"]["far"]):
-        return None
-    if _hits(loc_src, cfg["locations"]["primary"]):
-        pts += 15
-        plus.append("지역◎")
-    elif _hits(loc_src, cfg["locations"]["secondary"]):
-        pts += 7.5
-        plus.append("지역○")
-    elif job["location"]:
-        pts += 4
-        minus.append(f"지역({job['location'][:15]})")
+    # 4) 지역 (15)
+    if job.get("region"):
+        # 내가 정한 지역(regions)에서 이미 걸러졌으므로 만점. 지역 정보가 없던 공고는 중간 점수
+        if job["region"] == "지역 미확인":
+            pts += 15 * UNKNOWN
+        else:
+            pts += 15
+            plus.append("지역◎")
     else:
-        pts += 15 * UNKNOWN
+        # regions를 안 쓸 때: 출퇴근 불가 지역은 탈락
+        loc_src = job["location"] or text[:500]
+        if _hits(loc_src, cfg["locations"]["far"]):
+            return None
+        if _hits(loc_src, cfg["locations"]["primary"]):
+            pts += 15
+            plus.append("지역◎")
+        elif _hits(loc_src, cfg["locations"]["secondary"]):
+            pts += 7.5
+            plus.append("지역○")
+        elif job["location"]:
+            pts += 4
+            minus.append(f"지역({job['location'][:15]})")
+        else:
+            pts += 15 * UNKNOWN
 
     # 5) 업무 (15)
     t = _hits(text, cfg["good_tasks"])
