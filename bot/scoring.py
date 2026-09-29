@@ -1,0 +1,125 @@
+"""조건표 -> 점수. None을 반환하면 탈락(알림 안 함).
+
+웹앱(engine.js)과 같은 배점(100점 만점)을 쓴다.
+직무 15 / 경력 5 / 카테고리 20 / 업무 15 / 지역 15 / 연봉 10 / 조직·규모 10
+공고에 없는 정보는 감점하지 않고 중간 점수(60%)를 준다.
+봇은 목록 정보만 보기 때문에 업무·조직·규모는 대부분 '없음'으로 처리된다. 상세 판정은 웹앱에서.
+"""
+import re
+
+UNKNOWN = 0.6
+
+
+def _hits(text, terms):
+    t = text.lower()
+    return [w for w in terms if w.lower() in t]
+
+
+def _salary_max(s):
+    """'4,800~5,500만원' -> 5500, '회사내규' -> None"""
+    nums = [int(n.replace(",", "")) for n in re.findall(r"\d[\d,]{2,5}", s)]
+    nums = [n for n in nums if 1500 <= n <= 20000]  # 만원 단위로 보이는 숫자만
+    return max(nums) if nums else None
+
+
+def score(job, cfg):
+    title_co = f"{job['title']} {job['company']}"
+    text = job["text"]
+    plus, minus, pts = [], [], 0.0
+
+    # 1) 직무 (15): 제목에 MD 계열 단어가 없으면 탈락
+    if not _hits(job["title"], cfg["role_terms"]):
+        return None
+    if _hits(job["title"], cfg["role_strong_terms"]):
+        pts += 15
+    else:
+        pts += 7.5
+        minus.append("직무 불분명")
+
+    # 2) 카테고리 (20): 제목/회사명에 제외 카테고리가 있으면 탈락
+    if _hits(title_co, cfg["exclude_categories"]):
+        return None
+    g = _hits(text, cfg["good_categories"])
+    m = _hits(text, cfg["maybe_categories"])
+    ex = _hits(text, cfg["exclude_categories"])
+    if ex and len(ex) >= 2 and len(ex) > len(g) + len(m):
+        return None                               # 본문도 제외 카테고리가 주력
+    if len(g) >= 2:
+        pts += 20
+    elif g or m:
+        pts += 10
+    else:
+        pts += 20 * UNKNOWN
+    if ex:
+        pts -= 10
+        minus += ex
+    plus += g[:3] + m[:2]
+
+    # 3) 경력 (5): 3년 이하 또는 10년 이상 요구면 탈락
+    e = cfg["experience"]
+    lo, hi = job["exp_min"], job["exp_max"]
+    if hi and hi <= 3:
+        return None
+    if lo is not None and lo >= 10:
+        return None
+    if lo is None and not hi:
+        pts += 5 * UNKNOWN
+    elif lo is not None and lo <= e["max"] and (not hi or hi >= e["min"]):
+        pts += 5
+        plus.append(job["exp_text"] or "경력 적합")
+    else:
+        pts += 2.5
+        minus.append(job["exp_text"] or "경력 애매")
+
+    # 4) 지역 (15): 출퇴근 불가 지역은 탈락
+    loc_src = job["location"] or text[:500]
+    if _hits(loc_src, cfg["locations"]["far"]):
+        return None
+    if _hits(loc_src, cfg["locations"]["primary"]):
+        pts += 15
+        plus.append("지역◎")
+    elif _hits(loc_src, cfg["locations"]["secondary"]):
+        pts += 7.5
+        plus.append("지역○")
+    elif job["location"]:
+        pts += 4
+        minus.append(f"지역({job['location'][:15]})")
+    else:
+        pts += 15 * UNKNOWN
+
+    # 5) 업무 (15)
+    t = _hits(text, cfg["good_tasks"])
+    pts += 15 if len(t) >= 3 else 7.5 if t else 15 * UNKNOWN
+    plus += t[:3]
+
+    # 6) 연봉 (10): 회사내규/미기재는 감점 없이 중간 점수
+    smax = _salary_max(job["salary_text"])
+    if smax is None:
+        pts += 10 * UNKNOWN
+    elif smax >= cfg["salary"]["preferred"]:
+        pts += 10
+        plus.append(f"연봉 ~{smax:,}")
+    elif smax >= 4200:
+        pts += 5
+        minus.append(f"연봉 ~{smax:,}")
+    else:
+        minus.append(f"연봉 ~{smax:,}")
+
+    # 7) 조직·규모 (10)
+    o = _hits(text, cfg["org_terms"])
+    n = _hits(text, cfg["org_negative_terms"])
+    if len(n) >= 2:
+        minus += n
+    elif n:
+        pts += 5
+        minus += n
+    elif o:
+        pts += 10
+        plus += o[:2]
+    else:
+        pts += 10 * UNKNOWN
+
+    if _hits(text, cfg["level_terms"]):
+        plus.append("과장급")
+
+    return {"score": max(0, min(round(pts), 100)), "plus": plus, "minus": minus}
