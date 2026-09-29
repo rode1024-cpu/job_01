@@ -128,6 +128,12 @@ def score(job, cfg):
     else:
         pts += 10 * UNKNOWN
 
+    # 8) 고용 형태: 계약직·인턴·파견 등은 감점 (과장급 정규직 이직 기준)
+    c = _hits(text, cfg.get("contract_terms", []))
+    if c:
+        pts -= 10
+        minus.append(f"고용형태({c[0]})")
+
     if _hits(text, cfg["level_terms"]):
         plus.append("과장급")
 
