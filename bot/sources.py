@@ -9,6 +9,21 @@ from bs4 import BeautifulSoup
 
 UA = {"User-Agent": "Mozilla/5.0 (personal job alert; low frequency)"}
 
+# 실행 결과 요약용 (main.py가 읽음)
+STATS = {"jobkorea_search_ok": 0, "jobkorea_search_fail": 0}
+
+
+def _get(url, **kw):
+    """접속 실패 시 3번까지 다시 시도 (잡코리아가 간헐적으로 연결을 끊음)"""
+    last = None
+    for i in range(3):
+        try:
+            return requests.get(url, timeout=(10, 20), **kw)
+        except requests.RequestException as e:
+            last = e
+            time.sleep(3 * (i + 1))
+    raise last
+
 
 def _job(source, jid, title, company, location, exp_min, exp_max, exp_text,
          salary_text, text, url):
@@ -77,12 +92,13 @@ def fetch_jobkorea(keywords, seen, max_detail=15):
     ids = []
     for kw in keywords:
         try:
-            r = requests.get("https://www.jobkorea.co.kr/Search/",
-                             params={"stext": kw, "tabType": "recruit"},
-                             headers=UA, timeout=20)
+            r = _get("https://www.jobkorea.co.kr/Search/",
+                     params={"stext": kw, "tabType": "recruit"}, headers=UA)
             ids += re.findall(r"/Recruit/GI_Read/(\d+)", r.text)
+            STATS["jobkorea_search_ok"] += 1
         except Exception as e:
-            print(f"[잡코리아] '{kw}' 검색 실패: {e}")
+            STATS["jobkorea_search_fail"] += 1
+            print(f"[잡코리아] '{kw}' 검색 실패: {type(e).__name__}")
         time.sleep(2)
 
     uniq = list(dict.fromkeys(ids))
@@ -93,7 +109,7 @@ def fetch_jobkorea(keywords, seen, max_detail=15):
     for gid in new_ids:
         url = f"https://www.jobkorea.co.kr/Recruit/GI_Read/{gid}"
         try:
-            r = requests.get(url, headers=UA, timeout=20)
+            r = _get(url, headers=UA)
             soup = BeautifulSoup(r.text, "html.parser")
         except Exception as e:
             print(f"[잡코리아] {gid} 상세 실패: {e}")
