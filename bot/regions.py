@@ -10,7 +10,7 @@ def _tokens(region):
     """'서울 구로구' -> ['서울', '구로'], '부천시' -> ['부천'], '인천 서구' -> ['인천', '서구']"""
     toks = []
     for t in region.split():
-        base = re.sub(r"(시|구|군)$", "", t)
+        base = re.sub(r"(특별자치시|특별자치도|특별시|광역시|도|시|구|군)$", "", t)
         toks.append(base if len(base) >= 2 else t)   # '서구'처럼 짧아지면 그대로 둠
     return toks
 
