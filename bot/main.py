@@ -11,7 +11,7 @@ import yaml
 
 from regions import match_region
 from scoring import score
-from sources import fetch_jobkorea, fetch_saramin
+from sources import STATS, fetch_jobkorea, fetch_saramin
 
 ROOT = Path(__file__).parent
 SEEN_FILE = ROOT / "seen.json"
@@ -103,6 +103,20 @@ def main():
                 for _, j, _ in picked[limit:limit + 15]:
                     seen[j["id"]] = now
     print(f"신규 {total}건 알림 대상 / 전송 성공 {sent}건 (지역: {', '.join(order) or '없음'})")
+
+    # 실행 요약: 수동 실행이거나 접속 문제가 있었을 때만 보냄 (조용히 실패하는 걸 막기 위해)
+    fail, ok = STATS["jobkorea_search_fail"], STATS["jobkorea_search_ok"]
+    manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    if manual or fail:
+        lines = [f"<b>구직 알림봇 실행 결과</b>",
+                 f"수집 {len(jobs)}건 → 내 지역·기준 통과 {total}건 → 알림 전송 {sent}건"]
+        if fail:
+            lines.append(f"잡코리아 접속 실패 {fail}/{fail + ok}회 — 일시적일 수 있어요. 다음 실행에서 다시 시도해요.")
+        if not os.environ.get("SARAMIN_KEY"):
+            lines.append("사람인은 키가 없어 건너뜀")
+        if not total and not fail:
+            lines.append("새로 올라온 조건 맞는 공고가 없어요.")
+        send("\n".join(lines))
 
     # 오래된 기록 정리 후 저장
     seen = {k: v for k, v in seen.items() if now - v < KEEP_DAYS * 86400}
