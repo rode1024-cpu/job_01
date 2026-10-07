@@ -47,4 +47,15 @@ r = score(job, cfg)
 assert r and r["score"] >= cfg["notify_threshold"], r
 job["text"] += " 계약직"; job["exp_min"], job["exp_max"] = 0, 0
 assert score(job, cfg) is None               # 신입만 채용은 탈락
+# 경력 점수: 2~3년↑·경력무관은 감점, 4~8년↑·3~7년은 가점
+def with_exp(text):
+    lo, hi = parse_exp(text)
+    j = dict(job, exp_min=lo, exp_max=hi, exp_text=text, text="[에이게임] 게임 채널 MD 에이게임 게임, MD 정규직")
+    return score(j, cfg)
+good, low2, low3, anyexp, rng = (with_exp(t) for t in ("경력5년↑", "경력2년↑", "경력 (3년이상)", "경력무관", "경력3~7년"))
+assert good["score"] - low2["score"] >= 15 and good["score"] - low3["score"] >= 15, (good, low2, low3)
+assert any("연차 낮음" in m for m in low2["minus"]) and any("경력무관" in m for m in anyexp["minus"])
+assert rng["score"] == good["score"], (rng, good)
+# 교육·훈련 과정 모집은 제외
+assert quick_reject({"title": "[청년취업사관학교] [오아랩] 브랜드 MD", "company": "오아랩", "location": "서울 강남구", "tags": "", "exp_min": None, "exp_max": None}, cfg, regions)
 print("파서 시험 통과, 점수:", r["score"])

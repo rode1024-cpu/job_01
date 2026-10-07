@@ -196,6 +196,8 @@ def fetch_jobkorea(keywords, seen, max_detail=15, prefilter=None, pages=3):
         lo, hi = parse_exp(exp_text)
         salary = d.get("급여") or c["salary_text"]
         text = " ".join([title, company, c["tags"]] + [f"{k} {v}" for k, v in d.items() if not k.startswith("_")])
-        jobs.append(_job("jobkorea", gid, title, company, location, lo, hi, exp_text, salary, text, url))
+        job = _job("jobkorea", gid, title, company, location, lo, hi, exp_text, salary, text, url)
+        job["tags"], job["employment"] = c["tags"], d.get("고용형태", "")
+        jobs.append(job)
         time.sleep(2)
     return jobs

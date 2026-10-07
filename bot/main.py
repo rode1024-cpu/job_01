@@ -47,6 +47,9 @@ def fmt(job, r, star):
     lines = [f"<b>{e(head)}</b>", f"[{e(job['company'])}] {e(job['title'])}"]
     if info:
         lines.append(e(info[:120]))
+    meta = " · ".join(x for x in [job.get("tags"), job.get("employment")] if x)
+    if meta:
+        lines.append("업종: " + e(meta[:100]))
     if r["plus"]:
         lines.append("＋ " + e(", ".join(dict.fromkeys(r["plus"]))))
     if r["minus"]:
