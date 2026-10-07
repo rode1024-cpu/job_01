@@ -10,7 +10,7 @@ import requests
 from bs4 import BeautifulSoup
 
 UA = {"User-Agent": "Mozilla/5.0 (personal job alert; low frequency)"}
-OUT = Path(__file__).parent / "probe" / "report.txt"
+OUT = Path(__file__).parent / "probe" / "report2.txt"
 lines = []
 
 
@@ -97,12 +97,37 @@ def detail_report(gid):
     log("추천/광고 의심 영역:", [b.get("class") for b in soup.find_all(class_=re.compile("recommend|related|banner|ad", re.I))][:6])
 
 
+def probe2():
+    """검색 결과 카드의 내용, 정렬·지역 필터 옵션 위치를 찾는다."""
+    base = "https://www.jobkorea.co.kr/Search/"
+    r = get(base, params={"stext": "온라인MD", "tabType": "recruit"})
+    t = r.text
+    soup = BeautifulSoup(t, "html.parser")
+    cards = soup.find_all(attrs={"data-sentry-component": "CardJob"})
+    log("CardJob 카드 수:", len(cards))
+    for c in cards[:4]:
+        a_ = c.find("a", href=re.compile("GI_Read"))
+        log("\n[카드]", (a_.get("href") if a_ else "")[:80])
+        log(c.get_text(" | ", strip=True)[:600])
+    log("\n[local 관련 단어]", collections.Counter(re.findall(r"[A-Za-z_]*[Ll]ocal[A-Za-z_]*", t)).most_common(12))
+    for key in ("initialLocalCodes", '"areas":['):
+        i = t.find(key)
+        log(f"\n[{key}] 앞뒤:", ctx(t, i, 700) if i >= 0 else "없음")
+    log("\n[정렬 관련 문구]")
+    n = 0
+    for m in re.finditer(r"(정렬|최신순|등록일순|수정일순|정확도순|마감일순)", t):
+        log("  ..." + ctx(t, m.start(), 120))
+        n += 1
+        if n >= 8:
+            break
+    sel = soup.find("select", attrs={"name": "정렬"})
+    if sel:
+        log("정렬 select 주변:", re.sub(r"\s+", " ", str(sel.parent))[:600])
+
+
 def main():
     try:
-        ids = search_report()
-        for gid in ids[:2]:
-            time.sleep(2)
-            detail_report(gid)
+        probe2()
     except Exception as e:
         log("오류:", type(e).__name__, str(e)[:200])
     OUT.parent.mkdir(exist_ok=True)

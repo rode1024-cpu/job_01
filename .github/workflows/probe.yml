@@ -10,21 +10,26 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r bot/requirements.txt
-      - run: python bot/probe.py
+      - run: mkdir -p bot/probe
+      - name: dry-run (텔레그램 전송·기록 저장 없이 화면에만 출력)
+        working-directory: bot
+        env:
+          GITHUB_EVENT_NAME: workflow_dispatch
+        run: python main.py --dry-run 2>&1 | tee probe/dryrun.txt
       - name: save report
         run: |
           git config user.name "job-alert-bot"
           git config user.email "job-alert-bot@users.noreply.github.com"
-          git add bot/probe/report.txt
+          git add bot/probe/
           if ! git diff --staged --quiet; then
             git commit -m "probe report"
-            git pull --rebase -q origin main
+            git pull --rebase -q origin "$GITHUB_REF_NAME"
             git push
           fi

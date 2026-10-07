@@ -83,59 +83,119 @@ def fetch_saramin(keywords, count=100):
 
 
 # ---------------------------------------------------------------- 잡코리아
-_EXP_RANGE = re.compile(r"경력\s*(\d{1,2})\s*[~\-]\s*(\d{1,2})\s*년")
-_EXP_MIN = re.compile(r"경력\s*(\d{1,2})\s*년\s*(?:↑|이상)")
-_LOC = re.compile(r"(서울|경기|인천)\s*[가-힣]+(?:시|구|군)?(?:\s*[가-힣]+구)?")
+_REGION_HEAD = re.compile(r"^(서울|경기|인천|부산|대구|대전|광주|울산|세종|강원|충북|충남|전북|전남|경북|경남|제주)")
+_GI = re.compile(r"/Recruit/GI_Read/(\d+)")
+_DETAIL_LABELS = ("모집분야", "고용형태", "급여", "근무지주소", "근무시간", "경력")
 
 
-def fetch_jobkorea(keywords, seen, max_detail=15):
-    ids = []
+def parse_exp(text):
+    """'경력5년↑' / '경력 (2년이상)' / '경력3~5년' / '경력무관' / '신입' -> (min, max)"""
+    text = text or ""
+    m = re.search(r"(\d{1,2})\s*[~\-]\s*(\d{1,2})\s*년", text)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.search(r"(\d{1,2})\s*년\s*(?:↑|이상)", text)
+    if m:
+        return int(m.group(1)), None
+    if "신입" in text and "경력" not in text:
+        return 0, 0
+    return None, None
+
+
+def parse_cards(html):
+    """검색 결과 페이지의 공고 카드 -> [{id, title, company, location, tags, exp_text, salary_text}]
+    카드 안 글자 순서: (배지) 스크랩 / 제목 / 회사 / 지역 / 직무분류 / (연봉) 즉시 지원 / 경력 ..."""
+    soup = BeautifulSoup(html, "html.parser")
+    cards = []
+    for c in soup.find_all(attrs={"data-sentry-component": "CardJob"}):
+        a = c.find("a", href=_GI)
+        if not a:
+            continue
+        gid = _GI.search(a["href"]).group(1)
+        texts = list(c.stripped_strings)
+        card = {"id": gid, "title": "", "company": "", "location": "", "tags": "", "exp_text": "", "salary_text": ""}
+        if "스크랩" in texts:
+            i = texts.index("스크랩")
+            head = texts[i + 1:i + 5]
+            if len(head) >= 3 and _REGION_HEAD.match(head[2]):
+                card["title"], card["company"], card["location"] = head[0], head[1], head[2]
+                card["tags"] = head[3] if len(head) > 3 and not head[3].startswith(("연봉", "즉시")) else ""
+        for t in texts:
+            if not card["salary_text"] and re.match(r"^(연봉|월급|시급)", t):
+                card["salary_text"] = t
+            if not card["exp_text"] and re.match(r"^(경력|신입)", t):
+                card["exp_text"] = t
+        cards.append(card)
+    return cards
+
+
+def parse_detail(html):
+    """상세 페이지의 '모집요강' 이름표(근무지주소, 경력, 고용형태, 급여 ...) -> dict"""
+    soup = BeautifulSoup(html, "html.parser")
+    d = {}
+    for sp in soup.find_all("span"):
+        lab = sp.get_text(strip=True)
+        if lab in _DETAIL_LABELS and lab not in d:
+            val = sp.parent.get_text(" ", strip=True)
+            if val.startswith(lab):
+                val = val[len(lab):].strip()
+            d[lab] = val.replace("지도보기", "").strip()
+    og = soup.find("meta", property="og:title")
+    d["_og"] = ((og.get("content") if og else "") or "").replace("| 잡코리아", "").strip()
+    return d
+
+
+def fetch_jobkorea(keywords, seen, max_detail=15, prefilter=None, pages=3):
+    """검색(키워드 x 여러 페이지) -> 카드로 1차 거름(prefilter) -> 남은 신규 공고만 상세 조회.
+    prefilter(card_job) 가 False 이면 상세 조회 없이 STATS['jobkorea_skipped_ids']에 담는다."""
+    cards = {}
     for kw in keywords:
-        try:
-            r = _get("https://www.jobkorea.co.kr/Search/",
-                     params={"stext": kw, "tabType": "recruit"}, headers=UA)
-            ids += re.findall(r"/Recruit/GI_Read/(\d+)", r.text)
-            STATS["jobkorea_search_ok"] += 1
-        except Exception as e:
-            STATS["jobkorea_search_fail"] += 1
-            print(f"[잡코리아] '{kw}' 검색 실패: {type(e).__name__}")
-        time.sleep(2)
+        for pg in range(1, pages + 1):
+            try:
+                r = _get("https://www.jobkorea.co.kr/Search/",
+                         params={"stext": kw, "tabType": "recruit", "Page_No": pg}, headers=UA)
+                found = parse_cards(r.text)
+                if not found:                       # 카드 구조가 바뀌었을 때: 예전 방식(ID만)으로 대체
+                    found = [{"id": g, "title": "", "company": "", "location": "", "tags": "",
+                              "exp_text": "", "salary_text": ""} for g in dict.fromkeys(_GI.findall(r.text))]
+                for c in found:
+                    cards.setdefault(c["id"], c)
+                STATS["jobkorea_search_ok"] += 1
+            except Exception as e:
+                STATS["jobkorea_search_fail"] += 1
+                print(f"[잡코리아] '{kw}' {pg}페이지 검색 실패: {type(e).__name__}")
+            time.sleep(2)
 
-    uniq = list(dict.fromkeys(ids))
-    new_ids = [i for i in uniq if f"jobkorea:{i}" not in seen][:max_detail]
-    print(f"[잡코리아] 검색 {len(uniq)}건 / 신규 상세조회 {len(new_ids)}건")
+    new = [c for gid, c in cards.items() if f"jobkorea:{gid}" not in seen]
+    keep, skipped = [], []
+    for c in new:
+        lo, hi = parse_exp(c["exp_text"])
+        job = _job("jobkorea", c["id"], c["title"], c["company"], c["location"], lo, hi,
+                   c["exp_text"], c["salary_text"], f"{c['title']} {c['company']} {c['tags']}", "")
+        job["tags"] = c["tags"]
+        (keep if (prefilter is None or prefilter(job)) else skipped).append(c)
+    STATS["jobkorea_cards"] = len(cards)
+    STATS["jobkorea_skipped_ids"] = [f"jobkorea:{c['id']}" for c in skipped]
+    print(f"[잡코리아] 카드 {len(cards)}건 / 신규 {len(new)}건 / 카드에서 제외 {len(skipped)}건 / 상세조회 대상 {min(len(keep), max_detail)}건")
 
     jobs = []
-    for gid in new_ids:
+    for c in keep[:max_detail]:
+        gid = c["id"]
         url = f"https://www.jobkorea.co.kr/Recruit/GI_Read/{gid}"
         try:
-            r = _get(url, headers=UA)
-            soup = BeautifulSoup(r.text, "html.parser")
+            d = parse_detail(_get(url, headers=UA).text)
         except Exception as e:
-            print(f"[잡코리아] {gid} 상세 실패: {e}")
+            print(f"[잡코리아] {gid} 상세 실패: {type(e).__name__}")
             continue
-
-        og = soup.find("meta", property="og:title")
-        page_title = (og.get("content") if og else None) or (soup.title.string if soup.title else "")
-        page_title = (page_title or "").replace("| 잡코리아", "").strip()
-        # 보통 "회사명 채용 - 공고제목" 형태
-        company, title = "", page_title
-        if " - " in page_title:
-            company, title = page_title.split(" - ", 1)
+        title, company = c["title"], c["company"]
+        if not title and " - " in d["_og"]:
+            company, title = (x.strip() for x in d["_og"].split(" - ", 1))
             company = company.replace("채용", "").strip()
-
-        body = soup.get_text(" ", strip=True)[:8000]
-        m = _EXP_RANGE.search(body)
-        exp_min, exp_max = (int(m.group(1)), int(m.group(2))) if m else (None, None)
-        if not m:
-            m2 = _EXP_MIN.search(body)
-            exp_min = int(m2.group(1)) if m2 else None
-        loc_m = _LOC.search(body)
-        sal_m = re.search(r"(연봉|급여)[^가-힣]{0,3}[\d,]{3,6}\s*(?:~\s*[\d,]{3,6})?\s*만원|회사내규", body)
-
-        jobs.append(_job("jobkorea", gid, title, company,
-                         loc_m.group(0) if loc_m else "", exp_min, exp_max,
-                         m.group(0) if m else "", sal_m.group(0) if sal_m else "",
-                         f"{page_title} {body}", url))
+        location = d.get("근무지주소") or c["location"]
+        exp_text = d.get("경력") or c["exp_text"]
+        lo, hi = parse_exp(exp_text)
+        salary = d.get("급여") or c["salary_text"]
+        text = " ".join([title, company, c["tags"]] + [f"{k} {v}" for k, v in d.items() if not k.startswith("_")])
+        jobs.append(_job("jobkorea", gid, title, company, location, lo, hi, exp_text, salary, text, url))
         time.sleep(2)
     return jobs

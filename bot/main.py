@@ -10,7 +10,7 @@ import requests
 import yaml
 
 from regions import match_region
-from scoring import score
+from scoring import quick_reject, score
 from sources import STATS, fetch_jobkorea, fetch_saramin
 
 ROOT = Path(__file__).parent
@@ -66,7 +66,11 @@ def main():
     now = int(time.time())
 
     jobs = fetch_saramin(cfg["search_keywords"])
-    jobs += fetch_jobkorea(cfg["search_keywords"], seen, cfg["jobkorea_max_detail"])
+    jobs += fetch_jobkorea(cfg["search_keywords"], seen, cfg["jobkorea_max_detail"],
+                           prefilter=lambda card: not quick_reject(card, cfg, regions),
+                           pages=cfg.get("jobkorea_pages", 3))
+    for jid in STATS.get("jobkorea_skipped_ids", []):
+        seen[jid] = now                           # 카드만 보고 탈락시킨 공고는 다시 보지 않게 기록
 
     groups = {}                                   # 지역 -> [(점수, 공고, 결과)]
     n_new = n_region_out = n_below = 0
@@ -114,7 +118,8 @@ def main():
     daily = cfg.get("status_message", "daily") == "daily" and now - seen.get("_last_status", 0) > 20 * 3600
     if manual or fail or daily:
         lines = ["<b>구직 알림봇 실행 결과</b>",
-                 f"수집 {len(jobs)}건 중 새 공고 {n_new}건 → 알림 {sent}건"]
+                 f"잡코리아 검색 {STATS.get('jobkorea_cards', 0)}건 → 카드에서 조건 밖 {len(STATS.get('jobkorea_skipped_ids', []))}건 제외 → 상세 확인 {len(jobs)}건",
+                 f"새 공고 {n_new}건 → 알림 {sent}건"]
         if n_new:
             lines.append(f"제외: 내가 정한 지역 밖 {n_region_out}건, 점수·조건 미달 {n_below}건")
         if fail:
