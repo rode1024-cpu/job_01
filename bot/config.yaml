@@ -75,5 +75,8 @@ first_run_max: 3       # 처음 실행 시 지역별 상위 몇 개만
 # 실행 결과 요약 메시지: daily(하루 한 번, 알림이 없어도) / quiet(수동 실행·접속 문제일 때만)
 status_message: daily
 
-# 잡코리아 상세페이지 조회 상한 (서버에 부담 주지 않도록)
-jobkorea_max_detail: 15
+# 잡코리아: 키워드마다 검색 결과를 몇 페이지까지 볼지 (1페이지 약 30건)
+jobkorea_pages: 3
+
+# 잡코리아 상세페이지 조회 상한 (서버에 부담 주지 않도록). 카드에서 조건 밖인 공고는 조회하지 않음
+jobkorea_max_detail: 25

@@ -22,6 +22,24 @@ def _salary_max(s):
     return max(nums) if nums else None
 
 
+def quick_reject(job, cfg, regions=None):
+    """검색 카드 정보(제목·회사·직무분류·경력·지역)만으로 확실히 탈락인지. 상세 조회를 아끼는 용도."""
+    from regions import match_region
+    title = job["title"]
+    card_text = f"{title} {job['company']} {job.get('tags', '')}"
+    if title and not _hits(title, cfg["role_terms"]):
+        return True
+    if _hits(card_text, cfg["exclude_categories"]):
+        return True
+    lo, hi = job["exp_min"], job["exp_max"]
+    if (lo == 0 and hi == 0) or (hi and hi <= 3) or (lo is not None and lo >= 10):
+        return True
+    loc = job["location"]
+    if regions and loc and "외 " not in loc and match_region(loc, regions) is None:
+        return True                       # '외 N곳'이 없는 단일 근무지가 내 지역 밖
+    return False
+
+
 def score(job, cfg):
     title_co = f"{job['title']} {job['company']}"
     text = job["text"]
@@ -58,6 +76,8 @@ def score(job, cfg):
     # 3) 경력 (5): 3년 이하 또는 10년 이상 요구면 탈락
     e = cfg["experience"]
     lo, hi = job["exp_min"], job["exp_max"]
+    if lo == 0 and hi == 0:
+        return None                               # 신입만 채용
     if hi and hi <= 3:
         return None
     if lo is not None and lo >= 10:
