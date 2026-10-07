@@ -2,10 +2,11 @@ name: job-alert
 
 on:
   schedule:
-    # UTC 기준. 한국시간(KST = UTC+9) 09:00, 14:00, 19:30
-    - cron: "0 0 * * *"      # 09:00 KST
-    - cron: "0 5 * * *"      # 14:00 KST
-    - cron: "30 10 * * *"    # 19:30 KST
+    # UTC 기준(한국시간 = UTC+9). GitHub는 정각·30분에 실행이 몰려 몇 시간씩 밀려서,
+    # 한가한 분(:47, :17)으로 잡았어요. 그래서 아침 9시 / 오후 2시 / 저녁 7시 30분 무렵에 도착해요.
+    - cron: "47 23 * * *"    # 08:47 KST
+    - cron: "47 4 * * *"     # 13:47 KST
+    - cron: "17 10 * * *"    # 19:17 KST
   workflow_dispatch: {}   # Actions 탭에서 수동 실행 버튼
 
 permissions:
@@ -14,6 +15,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10     # 잡코리아 접속이 멈춰도 10분 안에 끝나도록
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
