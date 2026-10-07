@@ -69,15 +69,18 @@ def main():
     jobs += fetch_jobkorea(cfg["search_keywords"], seen, cfg["jobkorea_max_detail"])
 
     groups = {}                                   # 지역 -> [(점수, 공고, 결과)]
+    n_new = n_region_out = n_below = 0
     for j in jobs:
         if j["id"] in seen:
             continue
+        n_new += 1
         if regions:
             reg = match_region(j["location"], regions)
             if reg is None and not j["location"] and cfg.get("unknown_region") == "send":
                 reg = UNKNOWN_REGION
             if reg is None:
                 seen[j["id"]] = now               # 내가 정한 지역이 아니면 알림 없이 기록
+                n_region_out += 1
                 continue
             j["region"] = reg
         r = score(j, cfg)
@@ -85,6 +88,7 @@ def main():
             groups.setdefault(j.get("region") or "전체", []).append((r["score"], j, r))
         else:
             seen[j["id"]] = now                   # 알림 대상이 아닌 공고는 바로 기록 (중복 방지)
+            n_below += 1
 
     limit = cfg["first_run_max"] if first_run else cfg["max_alerts_per_run"]   # 지역별 한도
     order = [g for g in regions + [UNKNOWN_REGION, "전체"] if g in groups]
@@ -104,19 +108,21 @@ def main():
                     seen[j["id"]] = now
     print(f"신규 {total}건 알림 대상 / 전송 성공 {sent}건 (지역: {', '.join(order) or '없음'})")
 
-    # 실행 요약: 수동 실행이거나 접속 문제가 있었을 때만 보냄 (조용히 실패하는 걸 막기 위해)
+    # 실행 요약: 수동 실행 / 접속 문제 / 하루 한 번(알림이 0건이어도 봇이 살아 있다는 걸 알 수 있게)
     fail, ok = STATS["jobkorea_search_fail"], STATS["jobkorea_search_ok"]
     manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-    if manual or fail:
-        lines = [f"<b>구직 알림봇 실행 결과</b>",
-                 f"수집 {len(jobs)}건 → 내 지역·기준 통과 {total}건 → 알림 전송 {sent}건"]
+    daily = cfg.get("status_message", "daily") == "daily" and now - seen.get("_last_status", 0) > 20 * 3600
+    if manual or fail or daily:
+        lines = ["<b>구직 알림봇 실행 결과</b>",
+                 f"수집 {len(jobs)}건 중 새 공고 {n_new}건 → 알림 {sent}건"]
+        if n_new:
+            lines.append(f"제외: 내가 정한 지역 밖 {n_region_out}건, 점수·조건 미달 {n_below}건")
         if fail:
             lines.append(f"잡코리아 접속 실패 {fail}/{fail + ok}회 — 일시적일 수 있어요. 다음 실행에서 다시 시도해요.")
         if not os.environ.get("SARAMIN_KEY"):
             lines.append("사람인은 키가 없어 건너뜀")
-        if not total and not fail:
-            lines.append("새로 올라온 조건 맞는 공고가 없어요.")
-        send("\n".join(lines))
+        if send("\n".join(lines)):
+            seen["_last_status"] = now
 
     # 오래된 기록 정리 후 저장
     seen = {k: v for k, v in seen.items() if now - v < KEEP_DAYS * 86400}

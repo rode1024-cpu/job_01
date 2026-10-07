@@ -72,5 +72,8 @@ star_threshold: 70     # 이 점수 이상은 ★ 표시 (앱의 '지원 추천'
 max_alerts_per_run: 5  # 지역별로 한 번에 보낼 최대 개수 (넘치면 요약 1건)
 first_run_max: 3       # 처음 실행 시 지역별 상위 몇 개만
 
+# 실행 결과 요약 메시지: daily(하루 한 번, 알림이 없어도) / quiet(수동 실행·접속 문제일 때만)
+status_message: daily
+
 # 잡코리아 상세페이지 조회 상한 (서버에 부담 주지 않도록)
 jobkorea_max_detail: 15
