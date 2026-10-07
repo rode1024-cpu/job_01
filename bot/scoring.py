@@ -31,6 +31,8 @@ def quick_reject(job, cfg, regions=None):
         return True
     if _hits(card_text, cfg["exclude_categories"]):
         return True
+    if _hits(card_text, cfg.get("skip_terms", [])):
+        return True                       # 교육·훈련 과정 모집 등 채용이 아닌 공고
     lo, hi = job["exp_min"], job["exp_max"]
     if (lo == 0 and hi == 0) or (hi and hi <= 3) or (lo is not None and lo >= 10):
         return True
@@ -55,7 +57,7 @@ def score(job, cfg):
         minus.append("직무 불분명")
 
     # 2) 카테고리 (20): 제목/회사명에 제외 카테고리가 있으면 탈락
-    if _hits(title_co, cfg["exclude_categories"]):
+    if _hits(title_co, cfg["exclude_categories"]) or _hits(title_co, cfg.get("skip_terms", [])):
         return None
     g = _hits(text, cfg["good_categories"])
     m = _hits(text, cfg["maybe_categories"])
@@ -82,9 +84,15 @@ def score(job, cfg):
         return None
     if lo is not None and lo >= 10:
         return None
-    if lo is None and not hi:
+    if "무관" in (job["exp_text"] or ""):
+        pts -= 8                                  # 경력무관: 과장급 자리가 아닐 가능성
+        minus.append("경력무관")
+    elif lo is None and not hi:
         pts += 5 * UNKNOWN
-    elif lo is not None and lo <= e["max"] and (not hi or hi >= e["min"]):
+    elif lo is not None and lo <= 3 and not (hi and min(hi, 8) - max(lo, 5) >= 2):
+        pts -= 10                                 # 2~3년↑: 대리급 이하일 가능성이 커서 직접 감점
+        minus.append(f"연차 낮음({job['exp_text'] or str(lo) + '년'})")
+    elif lo is not None and ((4 <= lo <= 8 and (not hi or hi >= 5)) or (hi and min(hi, 8) - max(lo, 5) >= 2)):
         pts += 5
         plus.append(job["exp_text"] or "경력 적합")
     else:
